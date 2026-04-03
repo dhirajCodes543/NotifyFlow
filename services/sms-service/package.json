@@ -1,19 +1,26 @@
 {
+  "$schema": "https://json.schemastore.org/package.json",
   "name": "sms-service",
   "version": "1.0.0",
   "description": "",
   "main": "src/worker.js",
   "scripts": {
-    "start": "node src/worker.js"
+    "start": "node src/worker.js",
+     "dev": "nodemon src/worker.js"
   },
   "keywords": [],
   "author": "",
   "license": "ISC",
   "type": "module",
   "dependencies": {
+    "@prisma/client": "^6.19.3",
     "bullmq": "^5.72.0",
     "dotenv": "^17.3.1",
     "express": "^5.2.1",
-    "ioredis": "^5.10.1"
+    "ioredis": "^5.10.1",
+    "prisma": "^6.19.3"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.14"
   }
 }
