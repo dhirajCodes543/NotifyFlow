@@ -14,7 +14,6 @@ const JOB_OPTIONS = {
 export async function sendNotification(req, res) {
   try {
     const result = await processNotification(req.body);
-    console.log(result);
 
     for (const event of result.events) {
       const jobData = {

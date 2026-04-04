@@ -1,0 +1,6 @@
+{
+  "userId": "123",
+  "title": "test title",
+  "message": "hello",
+  "channels": ["email","sms","push"]
+}

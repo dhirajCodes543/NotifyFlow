@@ -9,12 +9,15 @@ export async function getNotificationEventsByIdController(req, res) {
     const formattedEvents = events.map((event) => ({
       eventId: event.id,
       channel: event.channel,
+      recipient: event.recipient,
       status: event.status,
       queuedAt: event.createdAt,
       processedAt:
         event.status === "SUCCESS" || event.status === "FAILED"
           ? event.updatedAt
           : null,
+      providerMessageId: event.providerMessageId ?? null,
+      errorMessage: event.errorMessage ?? null,
     }));
 
     return res.status(200).json({

@@ -15,14 +15,16 @@ const CHANNEL_DB_MAP = {
 };
 
 export async function processNotification(data) {
-  const { userId, title, message, channels } = data;
+  const { userId, title, message, channels, recipients } = data;
 
   if (
     !userId ||
     !title ||
     !message ||
     !Array.isArray(channels) ||
-    channels.length === 0
+    channels.length === 0 ||
+    !recipients ||
+    typeof recipients !== "object"
   ) {
     throw new Error("missing required fields");
   }
@@ -33,6 +35,12 @@ export async function processNotification(data) {
 
   if (normalizedChannels.length === 0) {
     throw new Error("no valid channels provided");
+  }
+
+  for (const channel of normalizedChannels) {
+    if (!recipients[channel]) {
+      throw new Error(`recipient missing for channel: ${channel}`);
+    }
   }
 
   const notification = await prisma.notification.create({
@@ -47,6 +55,7 @@ export async function processNotification(data) {
   const eventData = normalizedChannels.map((channel) => ({
     notificationId: notification.id,
     channel: CHANNEL_DB_MAP[channel],
+    recipient: recipients[channel],
     status: "PENDING",
   }));
 
@@ -66,6 +75,7 @@ export async function processNotification(data) {
   const events = savedEvents.map((event) => ({
     eventId: event.id,
     channel: event.channel,
+    recipient: event.recipient,
     queueName: CHANNEL_QUEUE_MAP[event.channel],
     status: event.status,
   }));
