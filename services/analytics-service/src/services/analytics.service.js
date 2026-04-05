@@ -41,6 +41,7 @@ export async function getChannelStats() {
     EMAIL: 0,
     SMS: 0,
     PUSH: 0,
+    WHATSAPP: 0,
   };
 
   for (const row of groupedChannels) {
@@ -62,6 +63,7 @@ export async function getChannelStatusStats() {
     EMAIL: { PENDING: 0, PROCESSING: 0, SUCCESS: 0, FAILED: 0 },
     SMS: { PENDING: 0, PROCESSING: 0, SUCCESS: 0, FAILED: 0 },
     PUSH: { PENDING: 0, PROCESSING: 0, SUCCESS: 0, FAILED: 0 },
+    WHATSAPP: { PENDING: 0, PROCESSING: 0, SUCCESS: 0, FAILED: 0 },
   };
 
   for (const row of grouped) {

@@ -5,6 +5,8 @@ export default async function updateNotificationStatus(notificationId) {
     where: { notificationId },
   });
 
+  if (!events.length) return;
+
   const statuses = events.map((e) => e.status);
 
   let notificationStatus = "PENDING";

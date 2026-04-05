@@ -11,6 +11,7 @@ enum Channel {
   EMAIL
   SMS
   PUSH
+  WHATSAPP
 }
 
 enum EventStatus {
@@ -42,18 +43,37 @@ model Notification {
 }
 
 model NotificationEvent {
-  id                String      @id @default(uuid())
+  id                String       @id @default(uuid())
   notificationId    String
 
   channel           Channel
   recipient         String
-  status            EventStatus @default(PENDING)
+  status            EventStatus  @default(PENDING)
 
   providerMessageId String?
   errorMessage      String?
 
-  createdAt         DateTime    @default(now())
-  updatedAt         DateTime    @updatedAt
+  createdAt         DateTime     @default(now())
+  updatedAt         DateTime     @updatedAt
 
   notification      Notification @relation(fields: [notificationId], references: [id])
+}
+
+model IdempotencyKey {
+  key        String   @id
+  response   Json
+  createdAt  DateTime @default(now())
+}
+
+model Template {
+  id            String   @id @default(uuid())
+  name          String
+  channel       Channel
+  titleTemplate String?
+  bodyTemplate  String
+
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@unique([name, channel])
 }
