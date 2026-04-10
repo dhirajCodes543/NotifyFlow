@@ -1,6 +1,0 @@
-{
-  "type":"module",
-  "dependencies": {
-    "ioredis": "^5.10.1"
-  }
-}
