@@ -1,4 +1,9 @@
 import prisma from "../config/prisma.js";
+import {
+  getTemplateFromCache,
+  setTemplateInCache,
+  deleteTemplateFromCache,
+} from "../utils/templateCache.js";
 
 const ALLOWED_CHANNELS = ["EMAIL", "SMS", "PUSH", "WHATSAPP"];
 
@@ -36,6 +41,8 @@ export async function createTemplate(data) {
     },
   });
 
+  await setTemplateInCache(template);
+
   return template;
 }
 
@@ -50,6 +57,14 @@ export async function getAllTemplates() {
 export async function getTemplateByNameAndChannel(name, channel) {
   const normalizedChannel = normalizeChannel(channel);
 
+  const cachedTemplate = await getTemplateFromCache(name, normalizedChannel);
+  if (cachedTemplate) {
+    console.log("template cache hit");
+    return cachedTemplate;
+  }
+
+  console.log("template cache miss");
+
   const template = await prisma.template.findFirst({
     where: {
       name,
@@ -60,6 +75,8 @@ export async function getTemplateByNameAndChannel(name, channel) {
   if (!template) {
     throw new Error("template not found");
   }
+
+  await setTemplateInCache(template);
 
   return template;
 }
@@ -82,11 +99,17 @@ export async function updateTemplate(name, channel, data) {
     where: { id: existing.id },
     data: {
       titleTemplate:
-        data.titleTemplate !== undefined ? data.titleTemplate : existing.titleTemplate,
+        data.titleTemplate !== undefined
+          ? data.titleTemplate
+          : existing.titleTemplate,
       bodyTemplate:
-        data.bodyTemplate !== undefined ? data.bodyTemplate : existing.bodyTemplate,
+        data.bodyTemplate !== undefined
+          ? data.bodyTemplate
+          : existing.bodyTemplate,
     },
   });
+
+  await setTemplateInCache(updated);
 
   return updated;
 }
@@ -109,6 +132,8 @@ export async function deleteTemplate(name, channel) {
     where: { id: existing.id },
   });
 
+  await deleteTemplateFromCache(existing.name, existing.channel);
+
   return { message: "template deleted" };
 }
 
@@ -121,15 +146,25 @@ export async function renderTemplate(data) {
 
   const normalizedChannel = normalizeChannel(channel);
 
-  const template = await prisma.template.findFirst({
-    where: {
-      name,
-      channel: normalizedChannel,
-    },
-  });
+  let template = await getTemplateFromCache(name, normalizedChannel);
 
-  if (!template) {
-    throw new Error("template not found");
+  if (template) {
+    console.log("template cache hit");
+  } else {
+    console.log("template cache miss");
+
+    template = await prisma.template.findFirst({
+      where: {
+        name,
+        channel: normalizedChannel,
+      },
+    });
+
+    if (!template) {
+      throw new Error("template not found");
+    }
+
+    await setTemplateInCache(template);
   }
 
   const renderedTitle = applyVariables(template.titleTemplate, variables);

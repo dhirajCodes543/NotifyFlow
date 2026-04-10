@@ -40,79 +40,114 @@ async function addJobWithRetry(queue, jobName, jobData, options, maxAttempts = 3
   throw lastError;
 }
 
-export async function sendNotification(req, res) {
+async function enqueueSingleEvent(event, result) {
+  const jobData = {
+    notificationId: result.notificationId,
+    userId: result.userId,
+    title: event.title,
+    message: event.message,
+    event,
+  };
+
   try {
-    const idempotencyKey = req.headers["idempotency-key"];
-
-    if (idempotencyKey) {
-      const existing = await prisma.idempotencyKey.findUnique({
-        where: { key: idempotencyKey },
+    if (event.queueName === "email-queue") {
+      await addJobWithRetry(emailQueue, "send-email", jobData, {
+        ...JOB_OPTIONS,
+        jobId: event.eventId,
       });
-
-      if (existing) {
-        return res.status(200).json(existing.response);
-      }
+    } else if (event.queueName === "sms-queue") {
+      await addJobWithRetry(smsQueue, "send-sms", jobData, {
+        ...JOB_OPTIONS,
+        jobId: event.eventId,
+      });
+    } else if (event.queueName === "push-queue") {
+      await addJobWithRetry(pushQueue, "send-push", jobData, {
+        ...JOB_OPTIONS,
+        jobId: event.eventId,
+      });
+    } else if (event.queueName === "whatsapp-queue") {
+      await addJobWithRetry(whatsappQueue, "send-whatsapp", jobData, {
+        ...JOB_OPTIONS,
+        jobId: event.eventId,
+      });
+    } else {
+      throw new Error(`Unknown queue name: ${event.queueName}`);
     }
 
-    const result = await processNotification(req.body);
-
-    for (const event of result.events) {
-      const jobData = {
-        notificationId: result.notificationId,
-        userId: result.userId,
-        title: event.title,
-        message: event.message,
-        event,
-      };
-
-      try {
-        if (event.queueName === "email-queue") {
-          await addJobWithRetry(emailQueue, "send-email", jobData, {
-            ...JOB_OPTIONS,
-            jobId: event.eventId,
-          });
-        } else if (event.queueName === "sms-queue") {
-          await addJobWithRetry(smsQueue, "send-sms", jobData, {
-            ...JOB_OPTIONS,
-            jobId: event.eventId,
-          });
-        } else if (event.queueName === "push-queue") {
-          await addJobWithRetry(pushQueue, "send-push", jobData, {
-            ...JOB_OPTIONS,
-            jobId: event.eventId,
-          });
-        } else if (event.queueName === "whatsapp-queue") {
-          await addJobWithRetry(whatsappQueue, "send-whatsapp", jobData, {
-            ...JOB_OPTIONS,
-            jobId: event.eventId,
-          });
-        } else {
-          throw new Error(`Unknown queue name: ${event.queueName}`);
-        }
-      } catch (queueErr) {
-        await prisma.notificationEvent.update({
-          where: { id: event.eventId },
-          data: {
-            status: "FAILED",
-            errorMessage: `Queue add failed: ${queueErr.message}`,
-          },
-        });
-
-        await updateNotificationStatus(result.notificationId);
-      }
-    }
+    return {
+      eventId: event.eventId,
+      channel: event.channel,
+      status: "QUEUED",
+    };
+  } catch (queueErr) {
+    await prisma.notificationEvent.update({
+      where: { id: event.eventId },
+      data: {
+        status: "FAILED",
+        errorMessage: `Queue add failed: ${queueErr.message}`,
+      },
+    });
 
     await updateNotificationStatus(result.notificationId);
 
+    return {
+      eventId: event.eventId,
+      channel: event.channel,
+      status: "FAILED",
+      reason: "QUEUE_ADD_FAILED",
+    };
+  }
+}
+
+export async function sendNotification(req, res) {
+  try {
+    const result = await processNotification(req.body);
+
+    const queueResults = await Promise.all(
+      result.events.map((event) => enqueueSingleEvent(event, result))
+    );
+
+    await updateNotificationStatus(result.notificationId);
+
+    const skippedResults = result.allEvents
+      .filter((event) => event.status === "SKIPPED")
+      .map((event) => ({
+        eventId: event.eventId,
+        channel: event.channel,
+        status: "SKIPPED",
+        ...(event.skipReason && { reason: event.skipReason }),
+      }));
+
+    const channelResults = [...queueResults, ...skippedResults];
+
+    const queuedCount = channelResults.filter(
+      (event) => event.status === "QUEUED"
+    ).length;
+
+    const skippedCount = channelResults.filter(
+      (event) => event.status === "SKIPPED"
+    ).length;
+
+    const failedCount = channelResults.filter(
+      (event) => event.status === "FAILED"
+    ).length;
+
     const responsePayload = {
-      message: "notification queued",
+      message: "notification processed",
       notificationId: result.notificationId,
+      summary: {
+        queuedCount,
+        skippedCount,
+        failedCount,
+      },
+      channels: channelResults,
     };
 
-    if (idempotencyKey) {
-      await prisma.idempotencyKey.create({
+    if (req.idempotencyKey) {
+      await prisma.idempotencyKey.update({
+        where: { key: req.idempotencyKey },
         data: {
-          key: idempotencyKey,
+          status: "COMPLETED",
           response: responsePayload,
         },
       });
@@ -120,6 +155,12 @@ export async function sendNotification(req, res) {
 
     return res.status(201).json(responsePayload);
   } catch (err) {
+    if (req.idempotencyKey) {
+      await prisma.idempotencyKey.deleteMany({
+        where: { key: req.idempotencyKey, status: "PROCESSING" },
+      });
+    }
+
     return res.status(400).json({
       error: err.message,
     });

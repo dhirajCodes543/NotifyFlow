@@ -6,15 +6,24 @@ const client = twilio(
 );
 
 export default async function sendWhatsapp({ message, event }) {
-  const response = await client.messages.create({
-    body: message,
-    from: process.env.TWILIO_WHATSAPP_FROM,
-    to: event.recipient,
-  });
+  try {
+    const response = await client.messages.create({
+      body: message,
+      from: process.env.TWILIO_WHATSAPP_FROM,
+      to: event.recipient,
+    });
 
-  if (!response?.sid) {
-    throw new Error("Twilio did not return a message SID");
+    if (!response?.sid) {
+      throw new Error("Twilio did not return a message SID");
+    }
+
+    if (response.status === "failed" || response.status === "undelivered") {
+      throw new Error(`Twilio message failed with status: ${response.status}`);
+    }
+
+    return response;
+
+  } catch (err) {
+    throw new Error(`WhatsApp send failed: ${err.message}`);
   }
-
-  return response;
 }

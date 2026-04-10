@@ -14,20 +14,26 @@ export default async function updateNotificationStatus(notificationId) {
   const allPending = statuses.every((s) => s === "PENDING");
   const allSuccess = statuses.every((s) => s === "SUCCESS");
   const allFailed = statuses.every((s) => s === "FAILED");
+  const allSkipped = statuses.every((s) => s === "SKIPPED");
+
   const hasProcessing = statuses.some((s) => s === "PROCESSING");
   const hasSuccess = statuses.some((s) => s === "SUCCESS");
   const hasFailed = statuses.some((s) => s === "FAILED");
+  const hasPending = statuses.some((s) => s === "PENDING");
+  const hasSkipped = statuses.some((s) => s === "SKIPPED");
 
   if (allPending) {
     notificationStatus = "PENDING";
   } else if (allSuccess) {
     notificationStatus = "SUCCESS";
-  } else if (allFailed) {
+  } else if (allFailed || allSkipped) {
     notificationStatus = "FAILED";
-  } else if (hasProcessing) {
+  } else if (hasProcessing || hasPending) {
     notificationStatus = "PROCESSING";
-  } else if (hasSuccess && hasFailed) {
+  } else if (hasSuccess && (hasFailed || hasSkipped)) {
     notificationStatus = "PARTIAL_SUCCESS";
+  } else if (hasFailed && hasSkipped && !hasSuccess) {
+    notificationStatus = "FAILED";
   } else {
     notificationStatus = "PROCESSING";
   }

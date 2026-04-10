@@ -1,64 +1,62 @@
 import prisma from "../config/prisma.js";
 import sendPush from "../service/pushSender.js";
 import updateNotificationStatus from "../service/notificationStatus.service.js";
+import { failedPushQueue } from "../queues/dlq-push.js";
 
-export default async function processpushJob(job) {
+export default async function processPushJob(job) {
   const { event, notificationId, title, message, userId } = job.data;
 
   try {
-    console.log("STEP 1: job picked");
-
     await prisma.notificationEvent.update({
       where: { id: event.eventId },
       data: { status: "PROCESSING" },
     });
-    console.log("STEP 2: set PROCESSING done");
 
-    await sendPush({
-      userId,
-      title,
+    const pushResult = await sendPush({
       message,
       event,
     });
-    console.log("STEP 3: sendPush done");
 
     await prisma.notificationEvent.update({
       where: { id: event.eventId },
-      data: { status: "SUCCESS" },
+      data: {
+        status: "SUCCESS",
+        providerMessageId: pushResult?.sid ?? null,
+        errorMessage: null,
+      },
     });
-    console.log("STEP 4: set SUCCESS done");
 
     await updateNotificationStatus(notificationId);
-    console.log("STEP 5: notification status updated");
-
-    console.log("push job completed:", job.id);
   } catch (err) {
-    console.error("push WORKER ERROR:", err);
-    console.error("push WORKER ERROR MESSAGE:", err.message);
-
     const isLastAttempt = job.attemptsMade + 1 >= job.opts.attempts;
 
     if (isLastAttempt) {
       try {
         await prisma.notificationEvent.update({
           where: { id: event.eventId },
-          data: { status: "FAILED" },
+          data: {
+            status: "FAILED",
+            errorMessage: err.message,
+          },
         });
-        console.log("STEP X: set FAILED done");
+
+        await failedPushQueue.add("failed-push", {
+          originalJobId: job.id,
+          eventId: event.eventId,
+          notificationId,
+          channel: event.channel,
+          recipient: event.recipient,
+          userId,
+          title,
+          message,
+          errorMessage: err.message,
+          failedAt: new Date().toISOString(),
+        });
+
+        await updateNotificationStatus(notificationId);
       } catch (dbErr) {
         console.error("FAILED STATUS UPDATE ERROR:", dbErr);
       }
-
-      try {
-        await updateNotificationStatus(notificationId);
-        console.log("STEP Y: notification status update after final failure done");
-      } catch (statusErr) {
-        console.error("NOTIFICATION STATUS UPDATE ERROR:", statusErr);
-      }
-    } else {
-      console.log(
-        `Retrying later... current failed attempt = ${job.attemptsMade + 1}, total allowed = ${job.opts.attempts}`
-      );
     }
 
     throw err;

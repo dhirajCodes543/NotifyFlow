@@ -1,0 +1,7 @@
+-- CreateEnum
+CREATE TYPE "IdempotencyStatus" AS ENUM ('PROCESSING', 'COMPLETED');
+
+-- AlterTable
+ALTER TABLE "IdempotencyKey" ADD COLUMN     "status" "IdempotencyStatus" NOT NULL DEFAULT 'PROCESSING',
+ADD COLUMN     "updatedAt" TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP,
+ALTER COLUMN "response" DROP NOT NULL;

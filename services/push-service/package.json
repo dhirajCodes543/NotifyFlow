@@ -6,7 +6,7 @@
   "main": "src/worker.js",
   "scripts": {
     "start": "node src/worker.js",
-     "dev": "nodemon src/worker.js"
+    "dev": "nodemon src/worker.js"
   },
   "keywords": [],
   "author": "",
@@ -15,7 +15,7 @@
   "dependencies": {
     "@prisma/client": "^6.19.3",
     "bullmq": "^5.72.0",
-    "dotenv": "^17.3.1",
+    "dotenv": "^17.4.1",
     "express": "^5.2.1",
     "ioredis": "^5.10.1",
     "prisma": "^6.19.3"

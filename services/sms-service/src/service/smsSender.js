@@ -6,17 +6,30 @@ const client = twilio(
 );
 
 export default async function sendSms({ message, event }) {
-  const recipient = event.recipient;
+  try {
+    const recipient = event.recipient;
 
-  if (!recipient) {
-    throw new Error("sms recipient missing");
+    if (!recipient) {
+      throw new Error("SMS recipient missing");
+    }
+
+    const response = await client.messages.create({
+      body: message,
+      from: process.env.TWILIO_PHONE_NUMBER,
+      to: recipient,
+    });
+
+    if (!response?.sid) {
+      throw new Error("Twilio did not return a message SID");
+    }
+
+    if (response.status === "failed" || response.status === "undelivered") {
+      throw new Error(`Twilio message failed with status: ${response.status}`);
+    }
+
+    return response;
+
+  } catch (err) {
+    throw new Error(`SMS send failed: ${err.message}`);
   }
-
-  const result = await client.messages.create({
-    body: message,
-    from: process.env.TWILIO_PHONE_NUMBER,
-    to: recipient,
-  });
-
-  return result;
 }

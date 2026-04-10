@@ -1,5 +1,11 @@
+import { randomUUID } from "crypto";
 import prisma from "../config/prisma.js";
 import { renderTemplate } from "../clients/template.client.js";
+import {
+  getOrCreateUserPreference,
+  isChannelEnabled,
+} from "./userPreference.service.js";
+import { checkAndReserveFrequencyCap } from "./frequencyCap.service.js";
 
 const ALLOWED_CHANNELS = ["email", "sms", "push", "whatsapp"];
 
@@ -35,22 +41,18 @@ function validateBaseFields({ userId, channels, recipients }) {
   }
 }
 
-function validateRecipients(normalizedChannels, recipients) {
-  for (const channel of normalizedChannels) {
-    if (!recipients[channel]) {
-      throw new Error(`recipient missing for channel: ${channel}`);
-    }
-  }
-}
-
 async function buildTemplateModeEvents({
   templateName,
   normalizedChannels,
   recipients,
   variables,
 }) {
-  return Promise.all(
+  const settledResults = await Promise.allSettled(
     normalizedChannels.map(async (channel) => {
+      if (!recipients[channel]) {
+        throw new Error(`recipient missing for channel: ${channel}`);
+      }
+
       const rendered = await renderTemplate({
         name: templateName,
         channel: channel.toUpperCase(),
@@ -66,6 +68,10 @@ async function buildTemplateModeEvents({
       };
     })
   );
+
+  return settledResults
+    .filter((result) => result.status === "fulfilled")
+    .map((result) => result.value);
 }
 
 function buildDirectModeEvents({
@@ -74,13 +80,15 @@ function buildDirectModeEvents({
   normalizedChannels,
   recipients,
 }) {
-  return normalizedChannels.map((channel) => ({
-    dbChannel: CHANNEL_DB_MAP[channel],
-    queueName: CHANNEL_QUEUE_MAP[CHANNEL_DB_MAP[channel]],
-    recipient: recipients[channel],
-    title,
-    message,
-  }));
+  return normalizedChannels
+    .filter((channel) => recipients[channel])
+    .map((channel) => ({
+      dbChannel: CHANNEL_DB_MAP[channel],
+      queueName: CHANNEL_QUEUE_MAP[CHANNEL_DB_MAP[channel]],
+      recipient: recipients[channel],
+      title,
+      message,
+    }));
 }
 
 export async function processNotification(data) {
@@ -101,8 +109,6 @@ export async function processNotification(data) {
   if (normalizedChannels.length === 0) {
     throw new Error("no valid channels provided");
   }
-
-  validateRecipients(normalizedChannels, recipients);
 
   const isTemplateMode = !!templateName;
   const isDirectMode = !templateName && !!message;
@@ -129,6 +135,63 @@ export async function processNotification(data) {
     });
   }
 
+  if (preparedEvents.length === 0) {
+    throw new Error("no valid channels could be processed");
+  }
+
+  const preference = await getOrCreateUserPreference(userId);
+
+  const evaluatedEvents = [];
+
+  for (const prepared of preparedEvents) {
+    const eventId = randomUUID();
+
+    if (!isChannelEnabled(preference, prepared.dbChannel)) {
+      evaluatedEvents.push({
+        eventId,
+        channel: prepared.dbChannel,
+        recipient: prepared.recipient,
+        queueName: prepared.queueName,
+        status: "SKIPPED",
+        skipReason: "CHANNEL_DISABLED",
+        title: prepared.title,
+        message: prepared.message,
+      });
+      continue;
+    }
+
+    const capResult = await checkAndReserveFrequencyCap({
+      userId,
+      channel: prepared.dbChannel,
+      eventId,
+    });
+
+    if (!capResult.allowed) {
+      evaluatedEvents.push({
+        eventId,
+        channel: prepared.dbChannel,
+        recipient: prepared.recipient,
+        queueName: prepared.queueName,
+        status: "SKIPPED",
+        skipReason: capResult.reason,
+        title: prepared.title,
+        message: prepared.message,
+      });
+      continue;
+    }
+
+    evaluatedEvents.push({
+      eventId,
+      channel: prepared.dbChannel,
+      recipient: prepared.recipient,
+      queueName: prepared.queueName,
+      status: "PENDING",
+      skipReason: null,
+      title: prepared.title,
+      message: prepared.message,
+    });
+  }
+
   const notificationTitle =
     preparedEvents[0].title || title || templateName || "Notification";
   const notificationMessage = preparedEvents[0].message;
@@ -145,13 +208,15 @@ export async function processNotification(data) {
 
     const createdEvents = [];
 
-    for (const prepared of preparedEvents) {
+    for (const evaluated of evaluatedEvents) {
       const event = await tx.notificationEvent.create({
         data: {
+          id: evaluated.eventId,
           notificationId: notification.id,
-          channel: prepared.dbChannel,
-          recipient: prepared.recipient,
-          status: "PENDING",
+          channel: evaluated.channel,
+          recipient: evaluated.recipient,
+          status: evaluated.status,
+          skipReason: evaluated.skipReason,
         },
       });
 
@@ -159,10 +224,11 @@ export async function processNotification(data) {
         eventId: event.id,
         channel: event.channel,
         recipient: event.recipient,
-        queueName: prepared.queueName,
+        queueName: evaluated.queueName,
         status: event.status,
-        title: prepared.title,
-        message: prepared.message,
+        skipReason: event.skipReason,
+        title: evaluated.title,
+        message: evaluated.message,
       });
     }
 
@@ -172,10 +238,15 @@ export async function processNotification(data) {
     };
   });
 
+  const queueableEvents = result.events.filter(
+    (event) => event.status === "PENDING"
+  );
+
   return {
     notificationId: result.notification.id,
     userId: result.notification.userId,
     status: result.notification.status,
-    events: result.events,
+    events: queueableEvents,
+    allEvents: result.events,
   };
 }

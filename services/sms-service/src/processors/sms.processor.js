@@ -1,9 +1,10 @@
 import prisma from "../config/prisma.js";
 import sendSms from "../service/smsSender.js";
 import updateNotificationStatus from "../service/notificationStatus.service.js";
+import { failedSmsQueue } from "../queues/dlq-sms.js";
 
 export default async function processSmsJob(job) {
-  const { event, notificationId, message } = job.data;
+  const { event, notificationId, title, message, userId } = job.data;
 
   try {
     await prisma.notificationEvent.update({
@@ -37,6 +38,19 @@ export default async function processSmsJob(job) {
             status: "FAILED",
             errorMessage: err.message,
           },
+        });
+
+        await failedSmsQueue.add("failed-sms", {
+          originalJobId: job.id,
+          eventId: event.eventId,
+          notificationId,
+          channel: event.channel,
+          recipient: event.recipient,
+          userId,
+          title,
+          message,
+          errorMessage: err.message,
+          failedAt: new Date().toISOString(),
         });
 
         await updateNotificationStatus(notificationId);

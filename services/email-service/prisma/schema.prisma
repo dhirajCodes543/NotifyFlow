@@ -19,6 +19,7 @@ enum EventStatus {
   PROCESSING
   SUCCESS
   FAILED
+  SKIPPED
 }
 
 enum NotificationStatus {
@@ -27,6 +28,16 @@ enum NotificationStatus {
   SUCCESS
   FAILED
   PARTIAL_SUCCESS
+}
+
+enum IdempotencyStatus {
+  PROCESSING
+  COMPLETED
+}
+
+enum SkipReason {
+  CHANNEL_DISABLED
+  FREQUENCY_CAP_REACHED
 }
 
 model Notification {
@@ -52,17 +63,20 @@ model NotificationEvent {
 
   providerMessageId String?
   errorMessage      String?
+  skipReason        SkipReason?
 
   createdAt         DateTime     @default(now())
   updatedAt         DateTime     @updatedAt
 
-  notification      Notification @relation(fields: [notificationId], references: [id])
+  notification      Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
 }
 
 model IdempotencyKey {
-  key        String   @id
-  response   Json
-  createdAt  DateTime @default(now())
+  key        String            @id
+  status     IdempotencyStatus @default(PROCESSING)
+  response   Json?
+  createdAt  DateTime          @default(now())
+  updatedAt  DateTime          @default(now()) @updatedAt
 }
 
 model Template {
@@ -76,4 +90,17 @@ model Template {
   updatedAt     DateTime @updatedAt
 
   @@unique([name, channel])
+}
+
+model UserPreference {
+  id              String   @id @default(uuid())
+  userId          String   @unique
+
+  emailEnabled    Boolean  @default(true)
+  smsEnabled      Boolean  @default(true)
+  pushEnabled     Boolean  @default(true)
+  whatsappEnabled Boolean  @default(true)
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
 }

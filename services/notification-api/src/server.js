@@ -3,6 +3,8 @@ import notificationRoutes from "./routes/notification.routes.js";
 import logger from "./config/logger.js";
 import rateLimiter from "./middleware/rateLimiter.js";
 import idempotency from "./middleware/idempotency.js";
+import userPreferenceRoutes from "./routes/userPreference.routes.js";
+
 
 const app = express();
 app.use(express.json());
@@ -14,6 +16,7 @@ app.get("/", (req, res) => {
   res.json({ service: "notification-api running" });
 });
 
+app.use("/preferences", userPreferenceRoutes);
 app.use("/", notificationRoutes);
 
 const PORT = process.env.PORT || 3000;
