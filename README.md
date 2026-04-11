@@ -353,7 +353,3 @@ NotifyFlow is built around five core principles:
 - **Schema management** — Prisma Migrate
 
 ---
-
-## License
-
-MIT
